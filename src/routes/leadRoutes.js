@@ -1,41 +1,64 @@
 const express = require("express");
-
 const controller = require("../controllers/leadController");
+const authenticate = require("../middleware/authenticate");
+const requirePermission = require("../middleware/requirePermission");
 
 const router = express.Router();
 
-/*
- * Health
- */
+router.get(
+  "/leads",
+  authenticate,
+  requirePermission("leads.read"),
+  controller.getLeads,
+);
 
-router.get("/health", controller.health);
+router.get(
+  "/leads/:id",
+  authenticate,
+  requirePermission("leads.read"),
+  controller.getLead,
+);
 
-/*
- * Leads
- */
+router.post(
+  "/leads",
+  authenticate,
+  requirePermission("leads.create"),
+  controller.createLead,
+);
 
-router.get("/leads", controller.getLeads);
+router.patch(
+  "/leads/:id",
+  authenticate,
+  requirePermission("leads.update"),
+  controller.updateLead,
+);
 
-router.get("/leads/:id", controller.getLead);
+router.delete(
+  "/leads/:id",
+  authenticate,
+  requirePermission("leads.delete"),
+  controller.deleteLead,
+);
 
-router.post("/leads", controller.createLead);
+router.get(
+  "/leads/:id/services",
+  authenticate,
+  requirePermission("leads.read"),
+  controller.getLeadServices,
+);
 
-router.patch("/leads/:id", controller.updateLead);
+router.put(
+  "/leads/:id/services",
+  authenticate,
+  requirePermission("leads.update"),
+  controller.updateLeadServices,
+);
 
-router.delete("/leads/:id", controller.deleteLead);
-
-/*
- * Lead services
- */
-
-router.get("/leads/:id/services", controller.getLeadServices);
-
-router.put("/leads/:id/services", controller.updateLeadServices);
-
-/*
- * Lead conversion
- */
-
-router.post("/leads/:id/convert", controller.convertLead);
+router.post(
+  "/leads/:id/convert",
+  authenticate,
+  requirePermission("leads.update"),
+  controller.convertLead,
+);
 
 module.exports = router;

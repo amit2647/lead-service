@@ -30,6 +30,44 @@ async function health(req, res) {
 
 /*
  * =========================================================
+ * AUTHORIZATION TOKEN
+ * =========================================================
+ *
+ * Extract the JWT from:
+ *
+ *     Authorization: Bearer <token>
+ *
+ * The same token is forwarded to downstream services
+ * such as Service Service and Customer Service.
+ * =========================================================
+ */
+
+function getAuthorizationToken(req) {
+  const authorization = req.headers.authorization;
+
+  if (!authorization) {
+    const error = new Error("Authentication required");
+
+    error.statusCode = 401;
+
+    throw error;
+  }
+
+  const parts = authorization.split(" ");
+
+  if (parts.length !== 2 || parts[0] !== "Bearer" || !parts[1]) {
+    const error = new Error("Invalid authorization header");
+
+    error.statusCode = 401;
+
+    throw error;
+  }
+
+  return parts[1];
+}
+
+/*
+ * =========================================================
  * GET ALL LEADS
  * =========================================================
  */
@@ -38,14 +76,29 @@ async function getLeads(req, res) {
   try {
     const q = req.query.q || "";
 
-    const leads = await leadService.getAllLeads(q);
+    /*
+     * Extract authenticated user's JWT.
+     *
+     * The token is required because Lead Service may need
+     * to call Service Service to retrieve service details.
+     */
+
+    const token = getAuthorizationToken(req);
+
+    const leads = await leadService.getAllLeads(
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+      q,
+      token,
+    );
 
     res.json(leads);
   } catch (error) {
     console.error("[ERROR] Error fetching leads:", error);
 
-    res.status(500).json({
-      error: "Failed to fetch leads",
+    res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "Failed to fetch leads",
     });
   }
 }
@@ -58,7 +111,19 @@ async function getLeads(req, res) {
 
 async function getLead(req, res) {
   try {
-    const lead = await leadService.getLeadById(req.params.id);
+    /*
+     * Extract JWT for Service Service communication.
+     */
+
+    const token = getAuthorizationToken(req);
+
+    const lead = await leadService.getLeadById(
+      req.params.id,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+      token,
+    );
 
     if (!lead) {
       return res.status(404).json({
@@ -70,8 +135,8 @@ async function getLead(req, res) {
   } catch (error) {
     console.error("[ERROR] Error fetching lead:", error);
 
-    res.status(500).json({
-      error: "Failed to fetch lead",
+    res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "Failed to fetch lead",
     });
   }
 }
@@ -96,7 +161,9 @@ async function createLead(req, res) {
     } = req.body;
 
     /*
-     * Validate name.
+     * -------------------------------------------------------
+     * Validate name
+     * -------------------------------------------------------
      */
 
     if (typeof name !== "string" || !name.trim()) {
@@ -106,7 +173,14 @@ async function createLead(req, res) {
     }
 
     /*
-     * Validate service IDs.
+     * -------------------------------------------------------
+     * Validate service IDs
+     * -------------------------------------------------------
+     *
+     * normalizeServiceIds() performs local shape validation.
+     *
+     * Actual service existence is validated by Lead Service
+     * through Service Service.
      */
 
     const normalizedServiceIds = normalizeServiceIds(serviceIds);
@@ -117,23 +191,74 @@ async function createLead(req, res) {
       });
     }
 
-    const lead = await leadService.createLead({
-      name,
-      company,
-      email,
-      phone,
-      channel,
-      status,
-      score,
-      serviceIds: normalizedServiceIds,
-    });
+    /*
+     * -------------------------------------------------------
+     * Extract JWT
+     * -------------------------------------------------------
+     *
+     * The JWT is forwarded by Lead Service to Service Service
+     * for service validation.
+     */
+
+    const token = getAuthorizationToken(req);
+
+    /*
+     * -------------------------------------------------------
+     * Create lead
+     * -------------------------------------------------------
+     *
+     * organizationId and ownerUserId are NEVER taken from
+     * the browser request body.
+     *
+     * They come from the authenticated JWT.
+     * -------------------------------------------------------
+     */
+
+    const lead = await leadService.createLead(
+      {
+        organizationId: req.auth.organizationId,
+
+        ownerUserId: req.auth.userId,
+
+        name,
+        company,
+        email,
+        phone,
+        channel,
+        status,
+        score,
+
+        serviceIds: normalizedServiceIds,
+      },
+      token,
+    );
 
     res.status(201).json(lead);
   } catch (error) {
     console.error("[ERROR] Error creating lead:", error);
 
     /*
+     * Service Service validation error.
+     *
+     * Example:
+     *
+     * Service 99999 not found
+     */
+
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+      });
+    }
+
+    /*
      * PostgreSQL FK violation.
+     *
+     * This may still occur while the lead_services FK
+     * references the shared services table.
+     *
+     * It is retained for backward compatibility until
+     * the database-level cross-service FK is removed.
      */
 
     if (error.code === "23503") {
@@ -168,15 +293,25 @@ async function updateLead(req, res) {
       });
     }
 
-    const lead = await leadService.updateLead(req.params.id, {
-      name,
-      company,
-      email,
-      phone,
-      channel,
-      status,
-      score,
-    });
+    const lead = await leadService.updateLead(
+      req.params.id,
+
+      req.auth.organizationId,
+
+      req.auth.userId,
+
+      req.auth.role,
+
+      {
+        name,
+        company,
+        email,
+        phone,
+        channel,
+        status,
+        score,
+      },
+    );
 
     if (!lead) {
       return res.status(404).json({
@@ -188,8 +323,8 @@ async function updateLead(req, res) {
   } catch (error) {
     console.error("[ERROR] Error updating lead:", error);
 
-    res.status(500).json({
-      error: "Failed to update lead",
+    res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "Failed to update lead",
     });
   }
 }
@@ -202,7 +337,17 @@ async function updateLead(req, res) {
 
 async function getLeadServices(req, res) {
   try {
-    const exists = await leadService.leadExists(req.params.id);
+    /*
+     * First verify that the authenticated user can access
+     * this lead.
+     */
+
+    const exists = await leadService.leadExists(
+      req.params.id,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+    );
 
     if (!exists) {
       return res.status(404).json({
@@ -210,14 +355,29 @@ async function getLeadServices(req, res) {
       });
     }
 
-    const services = await leadService.getLeadServices(req.params.id);
+    /*
+     * Extract JWT.
+     *
+     * Lead Service forwards it to Service Service when
+     * retrieving service details.
+     */
+
+    const token = getAuthorizationToken(req);
+
+    const services = await leadService.getLeadServices(
+      req.params.id,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+      token,
+    );
 
     res.json(services);
   } catch (error) {
     console.error("[ERROR] Error fetching lead services:", error);
 
-    res.status(500).json({
-      error: "Failed to fetch lead services",
+    res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "Failed to fetch lead services",
     });
   }
 }
@@ -230,6 +390,10 @@ async function getLeadServices(req, res) {
 
 async function updateLeadServices(req, res) {
   try {
+    /*
+     * Normalize and validate the service ID array.
+     */
+
     const serviceIds = normalizeServiceIds(req.body.serviceIds ?? []);
 
     if (serviceIds === null) {
@@ -238,9 +402,27 @@ async function updateLeadServices(req, res) {
       });
     }
 
+    /*
+     * Extract JWT.
+     *
+     * Lead Service uses this token when asking Service
+     * Service to validate the supplied service IDs.
+     */
+
+    const token = getAuthorizationToken(req);
+
     const result = await leadService.updateLeadServices(
       req.params.id,
+
+      req.auth.organizationId,
+
+      req.auth.userId,
+
+      req.auth.role,
+
       serviceIds,
+
+      token,
     );
 
     res.json(result);
@@ -259,11 +441,35 @@ async function updateLeadServices(req, res) {
  * =========================================================
  * CONVERT LEAD
  * =========================================================
+ *
+ * Lead Service → Customer Service
+ *
+ * Customer Service owns customer creation.
+ * Lead Service owns lead conversion state.
+ * =========================================================
  */
 
 async function convertLead(req, res) {
   try {
-    const result = await leadService.convertLead(req.params.id);
+    /*
+     * Extract JWT using the common helper.
+     *
+     * The same JWT is forwarded to Customer Service.
+     */
+
+    const token = getAuthorizationToken(req);
+
+    const result = await leadService.convertLead(
+      req.params.id,
+
+      req.auth.organizationId,
+
+      req.auth.userId,
+
+      req.auth.role,
+
+      token,
+    );
 
     res.json(result);
   } catch (error) {
@@ -285,7 +491,15 @@ async function convertLead(req, res) {
 
 async function deleteLead(req, res) {
   try {
-    const lead = await leadService.deleteLead(req.params.id);
+    const lead = await leadService.deleteLead(
+      req.params.id,
+
+      req.auth.organizationId,
+
+      req.auth.userId,
+
+      req.auth.role,
+    );
 
     if (!lead) {
       return res.status(404).json({
@@ -300,11 +514,17 @@ async function deleteLead(req, res) {
   } catch (error) {
     console.error("[ERROR] Error deleting lead:", error);
 
-    res.status(500).json({
-      error: "Failed to delete lead",
+    res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "Failed to delete lead",
     });
   }
 }
+
+/*
+ * =========================================================
+ * EXPORTS
+ * =========================================================
+ */
 
 module.exports = {
   health,
