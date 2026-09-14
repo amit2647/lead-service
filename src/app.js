@@ -12,6 +12,13 @@ app.use(express.json());
 
 app.use(requestLogger);
 
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "lead-service",
+  });
+});
+
 app.use(leadRoutes);
 
 module.exports = app;
