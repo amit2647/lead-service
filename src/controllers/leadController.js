@@ -331,6 +331,57 @@ async function updateLead(req, res) {
 
 /*
  * =========================================================
+ * VALIDATE LEAD
+ * =========================================================
+ *
+ * Used by other services that need to verify that a lead
+ * exists and belongs to the authenticated organization.
+ *
+ * This endpoint does NOT expose the full lead record.
+ *
+ * It only answers:
+ *
+ *     Does this lead exist?
+ *
+ * and:
+ *
+ *     Does it belong to this organization?
+ * =========================================================
+ */
+
+async function validateLead(req, res) {
+  try {
+    const exists = await leadService.leadExists(
+      req.params.id,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+    );
+
+    if (!exists) {
+      return res.status(404).json({
+        valid: false,
+        error: "Lead not found",
+      });
+    }
+
+    return res.json({
+      valid: true,
+      leadId: Number(req.params.id),
+      organizationId: req.auth.organizationId,
+    });
+  } catch (error) {
+    console.error("[ERROR] Error validating lead:", error);
+
+    return res.status(error.statusCode || 500).json({
+      valid: false,
+      error: error.statusCode ? error.message : "Failed to validate lead",
+    });
+  }
+}
+
+/*
+ * =========================================================
  * GET LEAD SERVICES
  * =========================================================
  */
@@ -529,6 +580,7 @@ async function deleteLead(req, res) {
 module.exports = {
   health,
   getLeads,
+  validateLead,
   getLead,
   createLead,
   updateLead,

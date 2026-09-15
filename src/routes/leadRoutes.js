@@ -13,6 +13,13 @@ router.get(
 );
 
 router.get(
+  "/leads/:id/validate",
+  authenticate,
+  requirePermission("leads.read"),
+  controller.validateLead,
+);
+
+router.get(
   "/leads/:id",
   authenticate,
   requirePermission("leads.read"),
