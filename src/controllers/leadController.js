@@ -1,4 +1,5 @@
 const leadService = require("../services/leadService");
+const { notifyAutomation } = require("../services/automationNotifier");
 const { normalizeServiceIds } = require("../utils/serviceIds");
 
 /*
@@ -232,6 +233,15 @@ async function createLead(req, res) {
       },
       token,
     );
+
+    // Not awaited: the lead is already created and the response should not wait
+    // on email-service. notifyAutomation never throws.
+    notifyAutomation({
+      event: "lead.created",
+      dedupeKey: `lead.created:${lead.id}`,
+      payload: { lead, userId: req.auth.userId },
+      authorizationToken: token,
+    });
 
     res.status(201).json(lead);
   } catch (error) {
@@ -521,6 +531,17 @@ async function convertLead(req, res) {
 
       token,
     );
+
+    notifyAutomation({
+      event: "lead.converted",
+      dedupeKey: `lead.converted:${req.params.id}`,
+      payload: {
+        lead: result.lead || { id: Number(req.params.id) },
+        customer: result.customer || null,
+        userId: req.auth.userId,
+      },
+      authorizationToken: token,
+    });
 
     res.json(result);
   } catch (error) {
