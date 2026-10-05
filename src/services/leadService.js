@@ -236,6 +236,11 @@ async function getAllLeads(
       l.channel,
       l.status,
       l.score,
+      l.quoted_fee,
+      l.next_meeting_on,
+      l.notes,
+      l.attributes,
+      l.converted_customer_id,
       l.created_at,
       l.updated_at,
 
@@ -348,6 +353,11 @@ async function getLeadById(
       channel,
       status,
       score,
+      quoted_fee,
+      next_meeting_on,
+      notes,
+      attributes,
+      converted_customer_id,
       created_at,
       updated_at
     FROM leads
@@ -844,6 +854,7 @@ async function convertLead(
         UPDATE leads
         SET
           status = 'Converted',
+          converted_customer_id = $${role === "SALES_REP" ? 4 : 3},
           updated_at = NOW()
         WHERE id = $1
           AND organization_id = $2
@@ -851,9 +862,10 @@ async function convertLead(
           ${role === "SALES_REP" ? "AND owner_user_id = $3" : ""}
         RETURNING *
         `,
+        // Which client the lead became, so its onboarding can follow (PROS-05).
         role === "SALES_REP"
-          ? [leadId, organizationId, userId]
-          : [leadId, organizationId],
+          ? [leadId, organizationId, userId, customer?.id ?? null]
+          : [leadId, organizationId, customer?.id ?? null],
       );
 
       if (updateResult.rows.length === 0) {
