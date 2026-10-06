@@ -598,6 +598,44 @@ async function deleteLead(req, res) {
  * =========================================================
  */
 
+/*
+ * =========================================================
+ * LINK LEAD TO AN EXISTING CUSTOMER
+ * =========================================================
+ */
+
+async function linkLead(req, res) {
+  try {
+    const leadId = Number(req.params.id);
+    const customerId = req.body?.customerId;
+
+    if (!Number.isInteger(leadId) || leadId <= 0) {
+      return res.status(400).json({ error: "Invalid lead ID" });
+    }
+
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: "customerId must be a positive integer" });
+    }
+
+    const result = await leadService.linkLead(
+      leadId,
+      customerId,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+      getAuthorizationToken(req),
+    );
+
+    return res.json(result);
+  } catch (error) {
+    if (!error.statusCode) console.error("[ERROR] Error linking lead:", error);
+
+    return res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : "The lead could not be linked",
+    });
+  }
+}
+
 module.exports = {
   health,
   getLeads,
@@ -608,5 +646,6 @@ module.exports = {
   getLeadServices,
   updateLeadServices,
   convertLead,
+  linkLead,
   deleteLead,
 };

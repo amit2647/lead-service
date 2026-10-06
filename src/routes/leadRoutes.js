@@ -72,6 +72,19 @@ router.post(
 );
 
 /*
+ * Link a lead to the customer it became (migration 017), for customers won
+ * before conversions were recorded. customer-service checks customers.update
+ * itself; it is required here too so a refusal comes before any write.
+ */
+router.post(
+  "/leads/:id/link",
+  authenticate,
+  requirePermission("leads.update"),
+  requirePermission("customers.update"),
+  controller.linkLead,
+);
+
+/*
  * The prospect board (organizations with a profession bundle only): move a
  * lead between the bundle's pipeline columns and keep its quote, next
  * meeting and notes (PROS-01–03).

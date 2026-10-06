@@ -760,6 +760,7 @@ async function convertLead(
         company,
         email,
         phone,
+        notes,
         status
       FROM leads
       WHERE id = $1
@@ -817,6 +818,11 @@ async function convertLead(
           company: lead.company,
           email: lead.email,
           phone: lead.phone,
+          // The lead customer-service records on the customer (migration
+          // 017): a retry after the update below failed finds that customer
+          // instead of creating a second one.
+          leadId: lead.id,
+          notes: lead.notes,
           serviceIds,
         }),
       },
@@ -910,6 +916,67 @@ async function convertLead(
 
 /*
  * =========================================================
+ * LINK LEAD TO AN EXISTING CUSTOMER
+ * =========================================================
+ *
+ * For a customer won before conversions were recorded, or added by hand: the
+ * same footprint as convertLead (the customer learns its lead, then the lead
+ * is marked Converted and points at it), in the same order, and just as safe
+ * to repeat. A lead already linked to a different customer is refused.
+ */
+
+async function linkLead(leadId, customerId, organizationId, userId, role, authorizationToken) {
+  const scoped = role === "SALES_REP";
+  const found = await pool.query(
+    `
+    SELECT id, status, converted_customer_id
+    FROM leads
+    WHERE id = $1 AND organization_id = $2 ${scoped ? "AND owner_user_id = $3" : ""}
+    `,
+    scoped ? [leadId, organizationId, userId] : [leadId, organizationId],
+  );
+  const lead = found.rows[0];
+
+  if (!lead) {
+    const error = new Error("Lead not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (lead.converted_customer_id && Number(lead.converted_customer_id) !== customerId) {
+    const error = new Error("This lead is already linked to another customer");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const response = await fetch(`${CUSTOMER_SERVICE_URL}/customers/${customerId}/source-lead`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${authorizationToken}` },
+    body: JSON.stringify({ leadId }),
+  });
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(body.error || "Customer Service could not link the customer");
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  const updated = await pool.query(
+    `
+    UPDATE leads
+    SET status = 'Converted', converted_customer_id = $3, updated_at = NOW()
+    WHERE id = $1 AND organization_id = $2
+    RETURNING *
+    `,
+    [leadId, organizationId, customerId],
+  );
+
+  return { lead: updated.rows[0], customer: body };
+}
+
+/*
+ * =========================================================
  * DELETE LEAD
  * =========================================================
  */
@@ -956,5 +1023,6 @@ module.exports = {
   leadExists,
   updateLeadServices,
   convertLead,
+  linkLead,
   deleteLead,
 };

@@ -108,8 +108,13 @@ async function updateProspect({ organizationId, userId, role }, bundle, leadId, 
   const result = await pool.query(`${query} RETURNING *`, values);
 
   if (!result.rows[0]) {
-    const error = new Error("Lead not found, or already converted");
-    error.statusCode = 404;
+    // A converted prospect is the client's history now: it stays as it was.
+    const converted = await pool.query(
+      `SELECT 1 FROM leads WHERE id = $1 AND organization_id = $2 AND status = 'Converted'`,
+      [leadId, organizationId],
+    );
+    const error = new Error(converted.rows[0] ? "This prospect is already a client and can no longer be changed" : "Lead not found");
+    error.statusCode = converted.rows[0] ? 409 : 404;
     throw error;
   }
 
