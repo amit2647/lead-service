@@ -1,6 +1,5 @@
 const { test, before, after, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const jwt = require("jsonwebtoken");
 
 /*
  * Linking a lead to the customer it became (migration 017) and what
@@ -8,8 +7,10 @@ const jwt = require("jsonwebtoken");
  * stand-ins.
  */
 
-process.env.JWT_SECRET = "unit-test-secret";
-process.env.JWT_ISSUER = "unit-test-issuer";
+// Hydra's tokens, signed with a test key served as a stubbed JWKS.
+const hydra = require("./helpers/hydraToken");
+
+before(() => hydra.ready);
 process.env.CUSTOMER_SERVICE_URL = "http://customer-service.test";
 
 let leads;
@@ -75,7 +76,7 @@ beforeEach(() => {
   leads = [{ id: 4, organization_id: 3, owner_user_id: 7, name: "Rao & Co", email: null, phone: null, company: null, notes: "Met at the GST seminar", status: "New", converted_customer_id: null }];
 });
 
-const token = (permissions) => jwt.sign({ sub: 7, organizationId: 3, role: "X", permissions }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER });
+const token = (permissions) => hydra.sign({ sub: 7, organizationId: 3, role: "X", permissions });
 
 const post = (path, body, permissions = ["leads.update", "customers.update"]) =>
   realFetch(`${base}${path}`, {

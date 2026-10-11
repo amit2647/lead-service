@@ -1,6 +1,5 @@
 const { test, before, after, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const jwt = require("jsonwebtoken");
 
 /*
  * The prospect board's rules (PROS-01–05): a lead moves only between the
@@ -8,8 +7,10 @@ const jwt = require("jsonwebtoken");
  * organization with a bundle installed.
  */
 
-process.env.JWT_SECRET = "unit-test-secret";
-process.env.JWT_ISSUER = "unit-test-issuer";
+// Hydra's tokens, signed with a test key served as a stubbed JWKS.
+const hydra = require("./helpers/hydraToken");
+
+before(() => hydra.ready);
 process.env.BUNDLE_SERVICE_URL = "http://bundle-service.test";
 
 const BUNDLE = {
@@ -104,7 +105,7 @@ const patch = (permissions, body) =>
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt.sign({ sub: 7, organizationId: 3, role: "X", permissions }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER })}`,
+      Authorization: `Bearer ${hydra.sign({ sub: 7, organizationId: 3, role: "X", permissions })}`,
     },
     body: JSON.stringify(body),
   });
